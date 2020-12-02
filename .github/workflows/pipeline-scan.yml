@@ -1,33 +1,92 @@
-# This workflow will build a Java project with Maven
-# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+# This workflow will initiate a Veracode Static Analysis Pipeline scan, return a results.json and convert to SARIF for upload as a code scanning alert
 
 name: Pipeline Scan for PHP/Javascript
 
+# on:
+#   push:
+#     branches:
+#       - '*'
+#       - '!master'
 on:
   push:
-    branches:
-      - '*'
-      - '!master'
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
 
-# jobs:
-#   build:
 
-#     runs-on: ubuntu-latest
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a job to build and submit pipeline scan, you will need to customize the build process accordingly and make sure the artifact you build is used as the file input to the pipeline scan file parameter
+  zip-project:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    steps:
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v2
+        
+  # zip the project and move it to a staging directory
+    - name: Zip Project
+      run: zip -R project.zip '*.py' '*.js' '*.php' '*.ts'
+      env:
+        build-name: project.zip
+      
+    - name: Archive package
+      uses: actions/upload-artifact@v2
+      with:
+        name: CodePackage
+        path: project.zip
+  
+  pipeline-scan:
+    needs: zip-project
+    runs-on: ubuntu-latest
+    container: 
+      image: veracode/pipeline-scan:latest
+      options: --user root # our normal luser doesn't have privs to write to github directories
 
-#     steps:
-#     - uses: actions/checkout@v2
-#     - name: Set up JDK 1.8
-#       uses: actions/setup-java@v1
-#       with:
-#         java-version: 1.8
-#     - name: Build with Maven
-#       run: mvn -B package --file pom.xml
+    steps:
+    - name: Retrieve artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: CodePackage
+        path: /github/home
     
-#     - uses: actions/upload-artifact@v2 # Copy files from repository to docker container so the next uploadandscan action can access them.
-#       with:
-#         path: target/*.war # Wildcards can be used to filter the files copied into the container. See: https://github.com/actions/upload-artifact
-    
-#         # download the Veracode Static Analysis Pipeline scan jar
+    #  Submit  project to pipeline scan
+    - name: Pipeline Scan
+      run: |
+        cd /github/home
+        java -jar /opt/veracode/pipeline-scan.jar --veracode_api_id="${{secrets.VERACODE_API_ID}}" --veracode_api_key="${{secrets.VERACODE_API_KEY}}" --fail_on_severity="Very High, High" --file="project.zip" --app_id="${{secrets.VERACODE_APP_ID}}" --json_output_file="results.json"
+      continue-on-error: true
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: ScanResults
+        path: /github/home/results.json
+
+  # Convert pipeline scan output to SARIF format  
+  process-results:
+    needs: pipeline-scan
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Retrieve results
+      uses: actions/download-artifact@v2
+      with:
+        name: ScanResults
+
+    - name: convert
+      uses: veracode/veracode-pipeline-scan-results-to-sarif@master
+      with:
+        pipeline-results-json: results.json
+        output-results-sarif: veracode-results.sarif
+        finding-rule-level: "4:3:0"
+    - uses: github/codeql-action/upload-sarif@v1
+      with:
+    # Path to SARIF file relative to the root of the repository
+        sarif_file: veracode-results.sarif  
+
+
+# Alternative way of initiating a scan by downloading the pipeline scanner jar and executing it
+#     # download the Veracode Static Analysis Pipeline scan jar
 #     - uses: wei/curl@master
 #       with:
 #         args: -O https://downloads.veracode.com/securityscan/pipeline-scan-LATEST.zip
