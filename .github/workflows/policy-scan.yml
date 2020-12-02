@@ -38,4 +38,5 @@ jobs:
         vkey: '${{ secrets.VERACODE_API_KEY }}'
         createsandbox: 'true'
         sandboxname: 'Github - ${{ github.ref }}'
-        scantimeout: 15
+#         scantimeout: 15
+        # set scantimeout only if you want to wait for results and fail the build
