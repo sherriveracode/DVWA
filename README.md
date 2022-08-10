@@ -37,6 +37,8 @@ along with Damn Vulnerable Web Application (DVWA).  If not, see http://www.gnu.o
 
 ## Download
 
+
+
 While there are various versions of DVWA around, the only supported version is the latest source from the official GitHub repository. You can either clone it from the repo:
 
 ```
